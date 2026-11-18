@@ -1,141 +1,223 @@
-// Drawing only: the world's state and the current screen in, pixels out. The 1280x720 playfield
-// is scaled to fit the window and centred, the margin filled with the backdrop colour. Flat
-// rectangles and circles, canvas text for the HUD and the panels. Text that holds a number is
-// rebuilt only when the number changes, so a frame allocates nothing.
-import { FIELD, FONT, LIVES, PALETTE } from './config.js';
-import { KIND_COIN } from './world.js';
+// Crescent Bay — render (r7 fresh)
+// Menggambar dunia + entitas ke canvas 2D. Tanpa network, tanpa Three.js.
+// draw(ctx, state) dengan state: { city, player, cars, police, bullets, camera? }.
+// player: {x, y, angle, color?}; cars/police: [{x, y, angle, color?}];
+// bullets: [{x, y}]; camera: {x, y} opsional (default: ikuti pemain).
 
-export const SCREEN_TITLE = 'title';
-export const SCREEN_PLAY = 'play';
-export const SCREEN_PAUSED = 'paused';
-export const SCREEN_OVER = 'over';
+import { WORLD_W, WORLD_H, DISTRICTS } from './config.js';
+import { shorelineX, BEACH_WIDTH } from './world.js';
 
-/** The panel's width; its height grows with its lines: room for the title, the lines and the prompt. */
-const PANEL = { width: 600, top: 134, line: 34, bottom: 70 };
-const LIFE_SIZE = 20;
-const LIFE_GAP = 8;
+const PALETTE = {
+  water: '#1e6f9e',
+  waterDeep: '#155a82',
+  sand: '#e8d29a',
+  grass: '#3f7d4a',
+  road: '#3a3a40',
+  roadLine: '#d8c95a',
+  building: '#8a8f98',
+  buildingRoof: '#6e7278',
+  dock: '#7a5230',
+  boat: '#e8e8e8',
+  palmTrunk: '#6b4a2f',
+  palmLeaf: '#2e8b57',
+  health: '#e5484d',
+  money: '#37c978',
+  ammo: '#f5a623',
+  player: '#2f9e44',
+  police: '#2563eb',
+};
 
-function cachedLabel(prefix) {
-  let value = -1;
-  let text = '';
-  return function label(next) {
-    if (next !== value) {
-      value = next;
-      text = prefix + next;
+function drawBuilding(ctx, b) {
+  ctx.fillStyle = PALETTE.building;
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+  ctx.fillStyle = PALETTE.buildingRoof;
+  ctx.fillRect(b.x + 4, b.y + 4, b.w - 8, b.h - 8);
+  // Jendela sederhana.
+  ctx.fillStyle = 'rgba(255, 240, 160, 0.55)';
+  const cols = Math.max(1, Math.floor(b.w / 26));
+  const rows = Math.max(1, Math.floor(b.h / 26));
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      ctx.fillRect(b.x + 8 + i * 26, b.y + 8 + j * 26, 10, 12);
     }
-    return text;
-  };
+  }
 }
 
-export function createRenderer(canvas) {
-  const context = canvas.getContext('2d');
-  const view = { scale: 1, x: 0, y: 0 };
-  const scoreLabel = cachedLabel('Score ');
-  const levelLabel = cachedLabel('Level ');
-  const finalLabel = cachedLabel('Score ');
-  const bestLabel = cachedLabel('Best ');
-
-  function resize() {
-    const ratio = window.devicePixelRatio || 1;
-    const width = Math.round(window.innerWidth * ratio);
-    const height = Math.round(window.innerHeight * ratio);
-    canvas.width = width;
-    canvas.height = height;
-    view.scale = Math.min(width / FIELD.width, height / FIELD.height);
-    view.x = (width - FIELD.width * view.scale) / 2;
-    view.y = (height - FIELD.height * view.scale) / 2;
+function drawPalm(ctx, p) {
+  ctx.strokeStyle = PALETTE.palmTrunk;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+  ctx.lineTo(p.x + 3, p.y - 14);
+  ctx.stroke();
+  ctx.fillStyle = PALETTE.palmLeaf;
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(p.x + 3 + Math.cos(a) * 8, p.y - 16 + Math.sin(a) * 5, 10, 4, a, 0, Math.PI * 2);
+    ctx.fill();
   }
-
-  const fonts = new Map();
-  function text(value, x, y, size, color, align) {
-    if (!fonts.has(size)) fonts.set(size, `${size}px ${FONT}`);
-    context.font = fonts.get(size);
-    context.fillStyle = color;
-    context.textAlign = align;
-    context.fillText(value, x, y);
-  }
-
-  function drawField(state) {
-    context.fillStyle = PALETTE.sky;
-    context.fillRect(0, 0, FIELD.width, FIELD.height);
-    context.fillStyle = PALETTE.ground;
-    context.fillRect(0, FIELD.groundY, FIELD.width, FIELD.height - FIELD.groundY);
-
-    const items = state.items;
-    for (let index = 0; index < items.length; index += 1) {
-      const item = items[index];
-      if (!item.active) continue;
-      if (item.kind === KIND_COIN) {
-        context.fillStyle = PALETTE.coin;
-        context.beginPath();
-        context.arc(item.x + item.width / 2, item.y + item.height / 2, item.width / 2, 0, Math.PI * 2);
-        context.fill();
-      } else {
-        context.fillStyle = PALETTE.block;
-        context.fillRect(item.x, item.y, item.width, item.height);
-      }
-    }
-
-    const player = state.player;
-    // Blink while invulnerable after a hit: hidden on every other tenth of a second.
-    if (player.invulnerable === 0 || Math.floor(player.invulnerable * 10) % 2 === 1) {
-      context.fillStyle = PALETTE.player;
-      context.fillRect(player.x, player.y, player.width, player.height);
-    }
-  }
-
-  function drawHud(state) {
-    context.textBaseline = 'top';
-    text(scoreLabel(state.score), 24, 20, 28, PALETTE.text, 'left');
-    text(levelLabel(state.level), FIELD.width / 2, 20, 28, PALETTE.text, 'center');
-    const firstLife = FIELD.width - 24 - LIVES * (LIFE_SIZE + LIFE_GAP) + LIFE_GAP;
-    text('Lives', firstLife - 12, 20, 28, PALETTE.text, 'right');
-    for (let life = 0; life < LIVES; life += 1) {
-      context.fillStyle = life < state.lives ? PALETTE.player : PALETTE.ground;
-      context.fillRect(firstLife + life * (LIFE_SIZE + LIFE_GAP), 24, LIFE_SIZE, LIFE_SIZE);
-    }
-  }
-
-  function drawPanel(title, lines, prompt) {
-    const height = PANEL.top + lines.length * PANEL.line + PANEL.bottom;
-    const x = (FIELD.width - PANEL.width) / 2;
-    const y = (FIELD.height - height) / 2;
-    context.fillStyle = PALETTE.panel;
-    context.fillRect(x, y, PANEL.width, height);
-    context.textBaseline = 'alphabetic';
-    text(title, FIELD.width / 2, y + 78, 48, PALETTE.text, 'center');
-    for (let index = 0; index < lines.length; index += 1) {
-      text(lines[index], FIELD.width / 2, y + PANEL.top + index * PANEL.line, 22, PALETTE.muted, 'center');
-    }
-    text(prompt, FIELD.width / 2, y + height - 40, 24, PALETTE.coin, 'center');
-  }
-
-  const TITLE_LINES = ['Dodge the red blocks. Catch the gold coins.', 'Move with ← → or A D.  Pause with P.', ''];
-  const PAUSED_LINES = ['The blocks will wait for you.'];
-  const OVER_LINES = ['', ''];
-
-  /** Paint one frame: the field, then the HUD or a panel for the screen the game is on. */
-  function draw(state, screen, best) {
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    context.fillStyle = PALETTE.backdrop;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
-    drawField(state);
-    if (screen === SCREEN_TITLE) {
-      TITLE_LINES[2] = bestLabel(best);
-      drawPanel('Block Dodger', TITLE_LINES, 'Press Space or click to start');
-      return;
-    }
-    drawHud(state);
-    if (screen === SCREEN_PAUSED) drawPanel('Paused', PAUSED_LINES, 'Press P to resume');
-    else if (screen === SCREEN_OVER) {
-      OVER_LINES[0] = finalLabel(state.score);
-      OVER_LINES[1] = bestLabel(best);
-      drawPanel('Game over', OVER_LINES, 'Press Space or click to play again');
-    }
-  }
-
-  resize();
-  window.addEventListener('resize', resize);
-  return { draw };
 }
+
+function drawPerson(ctx, e, color) {
+  ctx.save();
+  ctx.translate(e.x, e.y);
+  ctx.rotate(e.angle || 0);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(0, 0, 11, 0, Math.PI * 2);
+  ctx.fill();
+  // Arah hadap.
+  ctx.fillStyle = '#222';
+  ctx.fillRect(8, -2, 8, 4);
+  ctx.restore();
+}
+
+function drawCar(ctx, c) {
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.rotate(c.angle || 0);
+  ctx.fillStyle = c.color || '#c0392b';
+  ctx.fillRect(-18, -9, 36, 18);
+  ctx.fillStyle = 'rgba(180, 220, 255, 0.8)';
+  ctx.fillRect(-6, -7, 12, 14);
+  ctx.restore();
+}
+
+export function draw(ctx, state) {
+  if (!ctx || !state || !state.city) return;
+  const city = state.city;
+  const vw = ctx.canvas ? ctx.canvas.width : WORLD_W;
+  const vh = ctx.canvas ? ctx.canvas.height : WORLD_H;
+
+  // Kamera: ikuti pemain, clamp ke batas dunia.
+  let camX = 0;
+  let camY = 0;
+  const focus = state.camera || state.player;
+  if (focus) {
+    camX = Math.max(0, Math.min(WORLD_W - vw, focus.x - vw / 2));
+    camY = Math.max(0, Math.min(WORLD_H - vh, focus.y - vh / 2));
+  }
+
+  ctx.save();
+  ctx.translate(-camX, -camY);
+
+  // Daratan dasar.
+  ctx.fillStyle = PALETTE.grass;
+  ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+  // Teluk (air) + strip pasir — digambar per pita horizontal.
+  for (let y = 0; y < WORLD_H; y += 24) {
+    const s = shorelineX(y + 12);
+    ctx.fillStyle = PALETTE.water;
+    ctx.fillRect(0, y, s, 24);
+    ctx.fillStyle = PALETTE.sand;
+    ctx.fillRect(s, y, BEACH_WIDTH, 24);
+  }
+  // Kilau air.
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.lineWidth = 2;
+  for (let y = 60; y < WORLD_H; y += 120) {
+    const s = shorelineX(y);
+    ctx.beginPath();
+    ctx.moveTo(20, y);
+    ctx.lineTo(Math.max(20, s - 30), y);
+    ctx.stroke();
+  }
+
+  // Jalan.
+  for (const r of city.roads) {
+    ctx.fillStyle = PALETTE.road;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+  }
+  // Garis tengah jalan.
+  ctx.strokeStyle = PALETTE.roadLine;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([18, 16]);
+  for (const r of city.roads) {
+    ctx.beginPath();
+    if (r.w > r.h) {
+      const cy = r.y + r.h / 2;
+      ctx.moveTo(r.x, cy);
+      ctx.lineTo(r.x + r.w, cy);
+    } else {
+      const cx = r.x + r.w / 2;
+      ctx.moveTo(cx, r.y);
+      ctx.lineTo(cx, r.y + r.h);
+    }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Gedung.
+  for (const b of city.buildings) drawBuilding(ctx, b);
+
+  // Dermaga.
+  for (const d of city.docks) {
+    ctx.fillStyle = PALETTE.dock;
+    ctx.fillRect(d.x - 110, d.y - 7, 110, 14);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    for (let i = 0; i < 5; i++) ctx.fillRect(d.x - 100 + i * 22, d.y - 7, 3, 14);
+  }
+
+  // Perahu.
+  for (const b of city.boats) {
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(b.angle || 0);
+    ctx.fillStyle = PALETTE.boat;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 18, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#b03a2e';
+    ctx.fillRect(-4, -14, 8, 12);
+    ctx.restore();
+  }
+
+  // Palem.
+  for (const p of city.palms) drawPalm(ctx, p);
+
+  // Pickup.
+  for (const p of city.pickups || []) {
+    const color = p.kind === 'health' ? PALETTE.health
+      : p.kind === 'money' ? PALETTE.money : PALETTE.ammo;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(p.kind === 'health' ? '+' : p.kind === 'money' ? '$' : 'A', p.x, p.y + 0.5);
+  }
+
+  // Mobil.
+  for (const c of state.cars || []) drawCar(ctx, c);
+
+  // Polisi.
+  for (const p of state.police || []) drawPerson(ctx, p, PALETTE.police);
+
+  // Pemain.
+  if (state.player) drawPerson(ctx, state.player, state.player.color || PALETTE.player);
+
+  // Peluru.
+  ctx.fillStyle = '#ffe14d';
+  for (const b of state.bullets || []) {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  // Label distrik di tengah layar (teks kecil, tanpa DOM).
+  if (state.player) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+  }
+}
+
+export { DISTRICTS };
