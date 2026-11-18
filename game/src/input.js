@@ -1,53 +1,86 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
+// Crescent Bay — input (r7 fresh)
+// Pelacak keyboard: state tombol + edge detection per frame.
+// Aksi: gerak WASD/panah, lari Shift, interact E, masuk/keluar mobil F,
+// reload R, pause Escape/P. ES module, tanpa dependensi.
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
+const downKeys = new Set();
+const pressedKeys = new Set();
+let attached = false;
 
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
+function onKeyDown(e) {
+  // Edge: hanya catat pressed sekali per penekanan fisik (abaikan auto-repeat).
+  if (!e.repeat) pressedKeys.add(e.code);
+  downKeys.add(e.code);
+  // Cegah scroll halaman untuk tombol game.
+  if (
+    e.code === 'ArrowUp' || e.code === 'ArrowDown' ||
+    e.code === 'ArrowLeft' || e.code === 'ArrowRight' ||
+    e.code === 'Space'
+  ) {
+    e.preventDefault();
+  }
+}
 
-export function createInput(target) {
-  let left = false;
-  let right = false;
-  let actions = 0;
+function onKeyUp(e) {
+  downKeys.delete(e.code);
+}
 
-  window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
-    event.preventDefault();
-  });
-  window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
-  });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
-  window.addEventListener('blur', () => {
-    left = false;
-    right = false;
-  });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
-  });
+function onBlur() {
+  downKeys.clear();
+}
 
-  return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
-  };
+// Pasang listener keydown/keyup pada window. Aman dipanggil berulang.
+export function attach() {
+  if (attached || typeof window === 'undefined') return;
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', onBlur);
+  attached = true;
+}
+
+// Lepas listener. Aman dipanggil berulang.
+export function detach() {
+  if (!attached || typeof window === 'undefined') return;
+  window.removeEventListener('keydown', onKeyDown);
+  window.removeEventListener('keyup', onKeyUp);
+  window.removeEventListener('blur', onBlur);
+  attached = false;
+}
+
+// true selama tombol dengan `code` (KeyboardEvent.code) sedang ditekan.
+export function isDown(code) {
+  return downKeys.has(code);
+}
+
+// true hanya pada frame saat tombol pertama kali ditekan (edge).
+// Panggil update() sekali di akhir tiap frame untuk mereset edge.
+export function pressed(code) {
+  return pressedKeys.has(code);
+}
+
+// Reset semua edge pressed. Dipanggil sekali per frame oleh game loop.
+export function update() {
+  pressedKeys.clear();
+}
+
+// Vektor gerak ternormalisasi dari WASD + panah. {x, y}, panjang 0 atau 1.
+// y positif = ke bawah (koordinat canvas).
+export function moveVector() {
+  let x = 0;
+  let y = 0;
+  if (isDown('KeyA') || isDown('ArrowLeft')) x -= 1;
+  if (isDown('KeyD') || isDown('ArrowRight')) x += 1;
+  if (isDown('KeyW') || isDown('ArrowUp')) y -= 1;
+  if (isDown('KeyS') || isDown('ArrowDown')) y += 1;
+  if (x !== 0 && y !== 0) {
+    const inv = 1 / Math.SQRT2;
+    x *= inv;
+    y *= inv;
+  }
+  return { x, y };
+}
+
+// true selama Shift kiri/kanan ditekan (lari).
+export function isRunning() {
+  return isDown('ShiftLeft') || isDown('ShiftRight');
 }
