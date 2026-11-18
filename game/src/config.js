@@ -1,61 +1,43 @@
-// Every tuning number and colour in one place. The playfield is a fixed 1280x720 logical area;
-// the renderer scales it to the window, so no rule below depends on the screen size.
+// Crescent Bay — config (r7 fresh)
+// Konstanta dunia & gameplay. ES module, tanpa dependensi.
 
-export const FIELD = { width: 1280, height: 720, groundY: 664 };
+export const WORLD_W = 2400;
+export const WORLD_H = 1800;
 
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
-export const STEP = 1 / 60;
-
-export const PLAYER = {
-  width: 72,
-  height: 24,
-  speed: 560,
-  invulnerable: 1.5,
+// Distrik kota (nama kanonis, dipakai world.districtAtPoint)
+export const DISTRICTS = {
+  MARINA: 'Marina',
+  DOWNTOWN: 'Downtown',
+  BEACHFRONT: 'Beachfront',
+  HILLS: 'Hills',
 };
 
-export const LIVES = 3;
+// Kecepatan gerak pemain (pixel/detik)
+export const WALK_SPEED = 150;
+export const RUN_SPEED = 260;
 
-export const BLOCK = {
-  minWidth: 40,
-  maxWidth: 110,
-  height: 36,
-  speed: 240,
-  speedPerLevel: 30,
-  speedJitter: 90,
-  interval: 0.55,
-  intervalScale: 0.88,
-  minInterval: 0.14,
-  dodgePoints: 1,
+// Pistol pemain
+export const PISTOL = {
+  damage: 34,
+  range: 320,
+  mag: 12,
+  reloadMs: 1400,
+  cooldownMs: 220,
 };
 
-export const COIN = {
-  size: 24,
-  speed: 190,
-  speedPerLevel: 14,
-  interval: 1.4,
-  intervalJitter: 0.8,
-  points: 10,
-};
+// State awal pemain
+export const START_MONEY = 50;
+export const START_HEALTH = 100;
 
-/** Seconds of play per level, and the last level: speeds and spawn rates stop growing there. */
-export const LEVEL = { seconds: 12, max: 12 };
+// Sistem wanted (polisi)
+export const WANTED_MAX = 5;
+export const WANTED_DECAY_S = 25; // detik tanpa kejahatan sampai 1 bintang hilang
+export const BUSTED_PENALTY = 0.20; // 20% uang hilang saat tertangkap
 
-/** How many falling things can exist at once; the pool is allocated once, at boot. */
-export const POOL_SIZE = 64;
+// Misi
+export const MISSION_REWARDS = [250, 600, 1200, 2200];
+export const MISSION_TIME_LIMIT_S = 240;
 
-export const PALETTE = {
-  backdrop: '#11141b',
-  sky: '#1b1f2a',
-  ground: '#2a3040',
-  player: '#4fc3f7',
-  block: '#e5534b',
-  coin: '#f2c94c',
-  panel: '#252b38',
-  text: '#eef1f5',
-  muted: '#8b93a3',
-};
-
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-
-/** Where the best score is kept between visits (this browser only). */
-export const BEST_KEY = 'block-dodger.best';
+// Save & seed
+export const SAVE_KEY = 'crescent-bay-save-v1';
+export const SEED = 'crescent-bay-1';
