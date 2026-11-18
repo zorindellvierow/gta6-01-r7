@@ -40,6 +40,7 @@ const game = {
   bullets: [],
   playTimeS: 0,
   autosaveTimer: 0,
+  _failedAnnounced: false,
 };
 
 function newPlayer(x, y) {
@@ -163,7 +164,8 @@ function doWasted() {
   audio.wasted();
   game.mode = 'wasted';
   showOverlay('wasted');
-  autosave();
+  // JANGAN autosave di sini: health sedang 0, save itu akan membuat
+  // Continue langsung WASTED lagi. Save dilakukan di respawn().
 }
 
 function respawn() {
@@ -179,6 +181,7 @@ function respawn() {
   hideOverlay('wasted');
   game.mode = 'playing';
   toast('Rook kembali ke jalanan.');
+  autosave();
 }
 
 function shoot() {
@@ -333,7 +336,8 @@ function update(dt) {
     }
   }
 
-  // Misi.
+  // Misi (reset penanda gagal saat misi baru aktif).
+  if (game.missions.status === 'active') game._failedAnnounced = false;
   const res = updateMissions(game.missions, p, dt);
   if (res === 'complete') {
     audio.missionComplete();
@@ -349,7 +353,8 @@ function update(dt) {
       showOverlay('complete');
       autosave();
     }
-  } else if (res === 'failed') {
+  } else if (res === 'failed' && !game._failedAnnounced) {
+    game._failedAnnounced = true;
     toast(MISSIONS[game.missions.index].name + ' GAGAL — waktu habis. Coba lagi (Enter).');
     audio.busted();
   }
