@@ -1,79 +1,111 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// Crescent Bay — shots (r7 fresh)
+// Mode screenshot: baca URL param ?shot=start|play|end&seed=1.
+// Menyiapkan scene deterministik lalu menandai siap untuk capture
+// (window.__shotsReady = true). ES module.
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
+import { START_MONEY } from './config.js';
+import { MISSIONS } from './missions.js';
 
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
-    }
+// Titik deterministik untuk scene play (tengah jalan Downtown).
+const PLAY_SPOT = { x: 920, y: 720 };
+
+function params() {
+  try {
+    return new URLSearchParams(window.location.search);
+  } catch (_e) {
+    return new URLSearchParams('');
   }
-  return Infinity;
 }
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
-    }
-  }
-  return best;
+function showOverlay(id) {
+  const n = document.getElementById(id);
+  if (n) n.style.display = 'flex';
 }
 
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
+function hideOverlay(id) {
+  const n = document.getElementById(id);
+  if (n) n.style.display = 'none';
+}
+
+// Siapkan scene sesuai ?shot=. game adalah objek game dari main.js.
+// Return nama shot ('start' | 'play' | 'end') atau null bila tidak ada param.
+export function setupShots(game) {
+  if (typeof window === 'undefined' || !game) return null;
+  const shot = params().get('shot');
+  if (!shot) return null;
+  window.__shotsReady = false;
+
+  const p = game.player;
+  const apply = () => {
+    if (shot === 'start') {
+      // Layar menu: mode menu, pemain di spawn, HUD default.
+      game.mode = 'menu';
+      p.x = 1200;
+      p.y = 900;
+      p.money = START_MONEY;
+      p.health = 100;
+    } else if (shot === 'play') {
+      // Gameplay tengah jalan: pemain + mobil + polisi, wanted 1.
+      game.mode = 'playing';
+      p.x = PLAY_SPOT.x;
+      p.y = PLAY_SPOT.y;
+      p.angle = 0;
+      p.money = 125;
+      p.health = 82;
+      p.mag = 9;
+      p.ammo = 36;
+      p.inCar = false;
+      p.car = null;
+      // Mobil parkir di samping pemain.
+      const car = game.cars && game.cars[0];
+      if (car) {
+        car.x = PLAY_SPOT.x + 60;
+        car.y = PLAY_SPOT.y;
+        car.angle = 0;
+      }
+      // Satu polisi mengejar + 1 bintang wanted.
+      game.police.wanted = 1;
+      game.police.decayTimer = 25;
+      game.police.cops = [{ x: PLAY_SPOT.x + 260, y: PLAY_SPOT.y - 60, angle: 0, speed: 0 }];
+      // Misi 1 aktif.
+      game.missions.index = 0;
+      game.missions.status = 'active';
+      game.missions.timeLeft = 187;
+      game.missions.target = { x: MISSIONS[0].target.x, y: MISSIONS[0].target.y };
+      const menu = document.getElementById('menu');
+      if (menu) menu.style.display = 'none';
+    } else if (shot === 'end') {
+      // Layar misi selesai: uang $300, overlay complete tampil.
+      game.mode = 'playing';
+      p.x = 520;
+      p.y = 720;
+      p.money = START_MONEY + MISSIONS[0].reward; // 50 + 250 = 300
+      p.health = 100;
+      game.missions.index = 0;
+      game.missions.status = 'done';
+      game.missions.completed = [0];
+      game.missions.target = null;
+      const menu = document.getElementById('menu');
+      if (menu) menu.style.display = 'none';
+      const n = document.getElementById('complete-text');
+      if (n) n.textContent = MISSIONS[0].name + ' SELESAI! +$' + MISSIONS[0].reward + ' — Selin: "Kerja bagus, Rook."';
+      showOverlay('complete');
+    } else {
+      return;
+    }
+    // Satu frame render lalu tandai siap (main loop jalan terus).
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.__shotsReady = true;
+      });
+    });
+  };
+
+  // Tunggu DOM + modul main selesai init (menu sudah tampil).
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', apply);
+  } else {
+    setTimeout(apply, 50);
   }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
-  }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  return shot;
 }
